@@ -19,7 +19,7 @@ struct Buffer {
 
 type HostFunction = extern "C" fn(*const u8);
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn my_function(ptr: *const u8) {
     if ptr.is_null() {
         return;
@@ -29,25 +29,25 @@ extern "C" fn my_function(ptr: *const u8) {
 }
 
 unsafe fn host_function_500(strings: *const Strings) {
-    asm!("ecall", in("a0") strings, in("a7") 500u64);
+    unsafe { asm!("ecall", in("a0") strings, in("a7") 500u64) };
 }
 
 unsafe fn host_function_501(buffer: *mut Buffer) {
-    asm!("ecall", in("a0") buffer, in("a7") 501u64);
+    unsafe { asm!("ecall", in("a0") buffer, in("a7") 501u64) };
 }
 
 unsafe fn host_function_502(func: HostFunction) {
-    asm!("ecall", in("a0") func as usize, in("a7") 502u64);
+    unsafe { asm!("ecall", in("a0") func as usize, in("a7") 502u64) };
 }
 
 unsafe fn host_function_503(mut x: f32, mut y: f32, mut z: f32) -> (f32, f32, f32) {
-    asm!(
+    unsafe { asm!(
         "ecall",
         inlateout("fa0") x,
         inlateout("fa1") y,
         inlateout("fa2") z,
         in("a7") 503u64
-    );
+    );}
     (x, y, z)
 }
 
