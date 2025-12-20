@@ -1,6 +1,6 @@
 use libriscv::{
     register_syscall_handler, syscall_handler, Machine, Options, Registers, Result, SyscallContext,
-    SyscallId,
+    SyscallId, SyscallResult,
 };
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_long, c_uint};
@@ -61,7 +61,7 @@ fn write_c_string(dst: &mut [u8], text: &[u8]) -> usize {
 }
 
 #[syscall_handler]
-fn host_function_500(ctx: &mut SyscallContext) -> Result<()> {
+fn host_function_500(ctx: &mut SyscallContext) -> SyscallResult<()> {
     println!("Hello from host function 0!");
     let addr = {
         let regs = ctx.registers()?;
@@ -80,11 +80,11 @@ fn host_function_500(ctx: &mut SyscallContext) -> Result<()> {
 }
 
 #[syscall_handler]
-fn host_function_501(ctx: &mut SyscallContext) -> Result<()> {
-    println!("Hello from host function 1!");
+fn host_function_501(ctx: &mut SyscallContext) -> SyscallResult<()> {
+    println!("Hello from host function 501!");
     let addr = ctx.registers()?.x(10)?;
     let mut buf: Buffers = ctx.read_pod(addr)?;
-    let len = write_c_string(&mut buf.buffer, b"Hello from host function 1!");
+    let len = write_c_string(&mut buf.buffer, b"Hello from host function 501!");
     buf.count = len as GuestAddr;
 
     let another_len = buf.another_count as usize;
@@ -98,7 +98,7 @@ fn host_function_501(ctx: &mut SyscallContext) -> Result<()> {
         return Ok(());
     }
     let another_slice = ctx.writable_memview(buf.another_buffer_address, another_len)?;
-    let second = b"Another buffer from host function 1!";
+    let second = b"Another buffer from host function 501!";
     if second.len() >= another_len {
         eprintln!("host_function_501: another buffer too small");
         ctx.write_pod(addr, &buf)?;
@@ -111,14 +111,14 @@ fn host_function_501(ctx: &mut SyscallContext) -> Result<()> {
 }
 
 #[syscall_handler]
-fn host_function_502(ctx: &mut SyscallContext) -> Result<()> {
+fn host_function_502(ctx: &mut SyscallContext) -> SyscallResult<()> {
     let addr = ctx.registers()?.x(10)?;
     HOST_FN_ADDR.store(addr, Ordering::Relaxed);
     Ok(())
 }
 
 #[syscall_handler]
-fn host_function_503(ctx: &mut SyscallContext) -> Result<()> {
+fn host_function_503(ctx: &mut SyscallContext) -> SyscallResult<()> {
     let mut regs = ctx.registers()?;
     let mut x = regs.f32(10)?;
     let mut y = regs.f32(11)?;

@@ -1,7 +1,16 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::{format_ident, quote};
-use syn::{spanned::Spanned, FnArg, ItemFn, Type};
+use syn::{
+    parse_quote,
+    spanned::Spanned,
+    FnArg,
+    GenericArgument,
+    ItemFn,
+    PathArguments,
+    ReturnType,
+    Type,
+};
 
 #[proc_macro_attribute]
 pub fn syscall_handler(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -11,7 +20,7 @@ pub fn syscall_handler(attr: TokenStream, item: TokenStream) -> TokenStream {
             .into();
     }
 
-    let input = syn::parse_macro_input!(item as ItemFn);
+    let mut input = syn::parse_macro_input!(item as ItemFn);
     if input.sig.asyncness.is_some() {
         return syn::Error::new(input.sig.span(), "syscall_handler does not support async fns")
             .to_compile_error()
@@ -78,6 +87,25 @@ pub fn syscall_handler(attr: TokenStream, item: TokenStream) -> TokenStream {
     let vis = &input.vis;
 
     let crate_path = quote!(::libriscv);
+
+    if let ReturnType::Type(_, ty) = &input.sig.output {
+        if let Type::Path(type_path) = &**ty {
+            if let Some(segment) = type_path.path.segments.last() {
+                if segment.ident == "SyscallResult" {
+                    if let PathArguments::AngleBracketed(args) = &segment.arguments {
+                        if let Some(GenericArgument::Type(inner)) = args.args.first() {
+                            let block = input.block.clone();
+                            let inner = inner.clone();
+                            input.block = Box::new(parse_quote!({
+                                let result: #crate_path::Result<#inner> = (|| #block)();
+                                result.into()
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     let expanded = quote! {
         #input

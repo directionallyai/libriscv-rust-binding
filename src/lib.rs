@@ -792,11 +792,18 @@ impl SyscallHandlerOutput for () {
     fn handle(self) {}
 }
 
-impl<T> SyscallHandlerOutput for Result<T> {
+/// Result wrapper for syscall handlers.
+pub struct SyscallResult<T>(pub Result<T>);
+
+impl<T> From<Result<T>> for SyscallResult<T> {
+    fn from(value: Result<T>) -> Self {
+        Self(value)
+    }
+}
+
+impl<T> SyscallHandlerOutput for SyscallResult<T> {
     fn handle(self) {
-        if let Err(err) = self {
-            eprintln!("syscall handler error: {err}");
-        }
+        let _ = self.0;
     }
 }
 
