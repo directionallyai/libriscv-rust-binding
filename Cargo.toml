@@ -2,9 +2,19 @@
 name = "libriscv"
 version = "0.1.0"
 edition = "2024"
+authors = ["nemurubaka <cijiugechu@gmail.com>"]
+description = "Safe wrapper for libriscv_sys, a fast RISC-V sandbox emulator"
+license = "BSD-3-Clause"
+keywords = ["riscv", "emulator", "vm", "ffi", "bindings"]
+readme = "README.md"
+repository = "https://github.com/cijiugechu/libriscv"
+exclude = [
+    "examples/advanced/riscv_program",
+    "examples/advanced/rust_program",
+]
 
 [dependencies]
-bytemuck = { version = "1.16.1", features = ["derive"], optional = true }
+bytemuck = { version = "1.24", features = ["derive"], optional = true }
 libriscv_sys = { version = "0.1.0" }
 libriscv-macros = { path = "libriscv-macros" }
 

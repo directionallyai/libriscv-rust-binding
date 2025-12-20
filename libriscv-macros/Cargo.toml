@@ -2,6 +2,12 @@
 name = "libriscv-macros"
 version = "0.1.0"
 edition = "2024"
+authors = ["nemurubaka <cijiugechu@gmail.com>"]
+description = "Proc-macro helpers for libriscv"
+license = "BSD-3-Clause"
+keywords = ["riscv", "proc-macro", "ffi", "macros"]
+readme = "README.md"
+repository = "https://github.com/cijiugechu/libriscv"
 
 [lib]
 proc-macro = true
