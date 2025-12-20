@@ -193,10 +193,11 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         set_syscall_handler(503, Some(host_function_503))?;
     }
 
-    let mut options = Options::new();
-    options.set_stdout_handler(Some(stdout_callback));
-    options.set_error_handler(Some(error_callback));
-    options.set_args(["program"])?;
+    let options = Options::builder()
+        .stdout_handler(Some(stdout_callback))
+        .error_handler(Some(error_callback))
+        .args(["program"])
+        .build()?;
 
     let mut machine = Machine::new(elf, options)?;
     machine.run(u64::MAX)?;

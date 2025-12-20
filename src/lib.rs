@@ -91,91 +91,152 @@ fn check_code(op: &'static str, code: i32) -> Result<()> {
     }
 }
 
+fn default_raw_options() -> sys::RISCVOptions {
+    let mut raw = std::mem::MaybeUninit::<sys::RISCVOptions>::zeroed();
+    unsafe {
+        sys::libriscv_set_defaults(raw.as_mut_ptr());
+    }
+    let mut raw = unsafe { raw.assume_init() };
+    raw.argc = 0;
+    raw.argv = ptr::null_mut();
+    raw.error = None;
+    raw.stdout = None;
+    raw.opaque = ptr::null_mut();
+    raw
+}
+
 /// Configuration for creating a RISC-V machine.
 pub struct Options {
     raw: sys::RISCVOptions,
-    args: Vec<CString>,
-    argv_ptrs: Vec<*const c_char>,
+    _keepalive: OptionsKeepAlive,
+}
+
+struct OptionsKeepAlive {
+    _args: Vec<CString>,
+    _argv_ptrs: Vec<*const c_char>,
 }
 
 impl Options {
     /// Create options initialized with libriscv defaults.
     pub fn new() -> Self {
-        let mut raw = std::mem::MaybeUninit::<sys::RISCVOptions>::zeroed();
-        unsafe {
-            sys::libriscv_set_defaults(raw.as_mut_ptr());
-        }
-        let mut raw = unsafe { raw.assume_init() };
-        raw.argc = 0;
-        raw.argv = ptr::null_mut();
-        raw.error = None;
-        raw.stdout = None;
-        raw.opaque = ptr::null_mut();
         Self {
-            raw,
-            args: Vec::new(),
-            argv_ptrs: Vec::new(),
+            raw: default_raw_options(),
+            _keepalive: OptionsKeepAlive::empty(),
         }
     }
 
-    pub fn set_max_memory(&mut self, bytes: u64) -> &mut Self {
+    /// Start building a validated options struct.
+    pub fn builder() -> OptionsBuilder {
+        OptionsBuilder::new()
+    }
+}
+
+/// Builder for [`Options`].
+#[must_use]
+pub struct OptionsBuilder {
+    raw: sys::RISCVOptions,
+    args: Vec<String>,
+}
+
+impl OptionsBuilder {
+    /// Create a builder initialized with libriscv defaults.
+    pub fn new() -> Self {
+        Self {
+            raw: default_raw_options(),
+            args: Vec::new(),
+        }
+    }
+
+    pub fn max_memory(mut self, bytes: u64) -> Self {
         self.raw.max_memory = bytes;
         self
     }
 
-    pub fn set_stack_size(&mut self, bytes: u32) -> &mut Self {
+    pub fn stack_size(mut self, bytes: u32) -> Self {
         self.raw.stack_size = bytes;
         self
     }
 
-    pub fn set_strict_sandbox(&mut self, strict: bool) -> &mut Self {
+    pub fn strict_sandbox(mut self, strict: bool) -> Self {
         self.raw.strict_sandbox = if strict { 1 } else { 0 };
         self
     }
 
-    pub fn set_args<I, S>(&mut self, args: I) -> Result<&mut Self>
+    pub fn args<I, S>(mut self, args: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        self.args.clear();
-        for arg in args {
-            self.args.push(CString::new(arg.as_ref())?);
-        }
-        if self.args.len() > c_uint::MAX as usize {
-            return Err(Error::ArgsTooLarge(self.args.len()));
-        }
-        self.argv_ptrs = self.args.iter().map(|arg| arg.as_ptr()).collect();
-        self.raw.argc = self.argv_ptrs.len() as c_uint;
-        self.raw.argv = if self.argv_ptrs.is_empty() {
-            ptr::null_mut()
-        } else {
-            self.argv_ptrs.as_ptr() as *mut *const c_char
-        };
-        Ok(self)
-    }
-
-    pub fn clear_args(&mut self) -> &mut Self {
-        self.args.clear();
-        self.argv_ptrs.clear();
-        self.raw.argc = 0;
-        self.raw.argv = ptr::null_mut();
+        self.args = args
+            .into_iter()
+            .map(|arg| arg.as_ref().to_owned())
+            .collect();
         self
     }
 
-    pub fn set_error_handler(&mut self, handler: sys::riscv_error_func_t) -> &mut Self {
+    pub fn clear_args(mut self) -> Self {
+        self.args.clear();
+        self
+    }
+
+    pub fn error_handler(mut self, handler: sys::riscv_error_func_t) -> Self {
         self.raw.error = handler;
         self
     }
 
-    pub fn set_stdout_handler(&mut self, handler: sys::riscv_stdout_func_t) -> &mut Self {
+    pub fn stdout_handler(mut self, handler: sys::riscv_stdout_func_t) -> Self {
         self.raw.stdout = handler;
         self
     }
 
-    pub fn set_opaque(&mut self, opaque: *mut c_void) -> &mut Self {
+    pub fn opaque(mut self, opaque: *mut c_void) -> Self {
         self.raw.opaque = opaque;
         self
+    }
+
+    pub fn build(mut self) -> Result<Options> {
+        let args_len = self.args.len();
+        if args_len > c_uint::MAX as usize {
+            return Err(Error::ArgsTooLarge(args_len));
+        }
+
+        let args = self
+            .args
+            .into_iter()
+            .map(CString::new)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let argv_ptrs: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
+
+        let keepalive = OptionsKeepAlive {
+            _args: args,
+            _argv_ptrs: argv_ptrs,
+        };
+        self.raw.argc = keepalive._argv_ptrs.len() as c_uint;
+        self.raw.argv = if keepalive._argv_ptrs.is_empty() {
+            ptr::null_mut()
+        } else {
+            keepalive._argv_ptrs.as_ptr() as *mut *const c_char
+        };
+
+        Ok(Options {
+            raw: self.raw,
+            _keepalive: keepalive,
+        })
+    }
+}
+
+impl OptionsKeepAlive {
+    const fn empty() -> Self {
+        Self {
+            _args: Vec::new(),
+            _argv_ptrs: Vec::new(),
+        }
+    }
+}
+
+impl Default for OptionsBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

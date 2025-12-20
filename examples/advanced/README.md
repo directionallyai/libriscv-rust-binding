@@ -49,5 +49,5 @@ cargo run --example advanced_syscalls -- examples/advanced/riscv_program/micro
 Or run the Rust guest build:
 
 ```sh
-cargo run --example advanced_syscalls -- examples/advanced/rust_program/target/riscv64gc-unknown-linux-gnu/release/riscv_micro
+cargo run --example advanced_syscalls -- examples/advanced/rust_program/target/riscv64gc-unknown-linux-musl/release/riscv_micro
 ```

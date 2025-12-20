@@ -15,9 +15,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
 
     let elf = std::fs::read(&args[1])?;
-    let mut options = Options::new();
-    options.set_max_memory(64 * 1024 * 1024);
-    options.set_args(args[1..].iter().map(|arg| arg.as_str()))?;
+    let options = Options::builder()
+        .max_memory(64 * 1024 * 1024)
+        .args(args[1..].iter())
+        .build()?;
 
     let mut machine = Machine::new(elf, options)?;
     machine.run(32_000_000)?;
