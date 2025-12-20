@@ -12,6 +12,13 @@ use syn::{
     Type,
 };
 
+/// Define a safe syscall handler and generate a `*_handler()` constructor.
+///
+/// The annotated function must be a non-`async`, non-`unsafe` function with
+/// the signature `fn(&mut SyscallContext) -> ()` or
+/// `fn(&mut SyscallContext) -> SyscallResult<T>`. The macro generates an
+/// `extern "C"` trampoline that catches panics and forwards the return value
+/// to `SyscallHandlerOutput`.
 #[proc_macro_attribute]
 pub fn syscall_handler(attr: TokenStream, item: TokenStream) -> TokenStream {
     if !attr.is_empty() {
