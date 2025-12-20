@@ -53,24 +53,19 @@ fn validate_context_arg(input: &ItemFn, expected: &str) -> Result<(), syn::Error
 }
 
 fn wrap_syscall_result(input: &mut ItemFn, crate_path: &proc_macro2::TokenStream) {
-    if let ReturnType::Type(_, ty) = &input.sig.output {
-        if let Type::Path(type_path) = &**ty {
-            if let Some(segment) = type_path.path.segments.last() {
-                if segment.ident == "SyscallResult" {
-                    if let PathArguments::AngleBracketed(args) = &segment.arguments {
-                        if let Some(GenericArgument::Type(inner)) = args.args.first() {
+    if let ReturnType::Type(_, ty) = &input.sig.output
+        && let Type::Path(type_path) = &**ty
+            && let Some(segment) = type_path.path.segments.last()
+                && segment.ident == "SyscallResult"
+                    && let PathArguments::AngleBracketed(args) = &segment.arguments
+                        && let Some(GenericArgument::Type(inner)) = args.args.first() {
                             let block = input.block.clone();
                             let inner = inner.clone();
-                            input.block = Box::new(parse_quote!({
+                            *input.block = parse_quote!({
                                 let result: #crate_path::Result<#inner> = (|| #block)();
                                 result.into()
-                            }));
+                            });
                         }
-                    }
-                }
-            }
-        }
-    }
 }
 
 /// Define a safe syscall handler and generate a `*_handler()` constructor.
