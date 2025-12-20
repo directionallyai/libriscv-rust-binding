@@ -1,0 +1,12 @@
+[package]
+name = "libriscv"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+libriscv_sys = { version = "0.1.0" }
+
+[features]
+default = []
+bindgen = ["libriscv_sys/bindgen"]
+binary-translation = ["libriscv_sys/binary-translation"]

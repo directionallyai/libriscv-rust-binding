@@ -1,0 +1,5 @@
+/target
+.zig-cache
+./Cargo.lock
+examples/advanced/rust_program/target
+examples/advanced/riscv_program/micro
