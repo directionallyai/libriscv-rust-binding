@@ -14,7 +14,6 @@ use libriscv::{
     SyscallResult,
 };
 use std::ffi::CStr;
-use std::os::raw::c_uint;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 type GuestAddr = u64;
@@ -100,7 +99,7 @@ fn host_function_501(ctx: &mut SyscallContext) -> SyscallResult<()> {
         ctx.write_pod(addr, &buf)?;
         return Ok(());
     }
-    if another_len > c_uint::MAX as usize {
+    if another_len > u32::MAX as usize {
         eprintln!("host_function_501: another buffer too large");
         ctx.write_pod(addr, &buf)?;
         return Ok(());
