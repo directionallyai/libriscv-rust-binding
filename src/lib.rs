@@ -15,11 +15,12 @@ use std::rc::Rc;
 mod syscall;
 mod callbacks;
 pub use syscall::{
-    register_syscall_handler,
     SyscallContext,
     SyscallHandler,
     SyscallHandlerOutput,
     SyscallId,
+    SyscallRegistry,
+    SyscallRegistryBuilder,
     SyscallResult,
     SyscallRegisters,
     SYSCALLS_MAX,
@@ -284,7 +285,11 @@ pub struct Machine {
 }
 
 impl Machine {
-    pub fn new(elf: impl AsRef<[u8]>, mut options: Options) -> Result<Self> {
+    pub fn new(
+        elf: impl AsRef<[u8]>,
+        mut options: Options,
+        _registry: &SyscallRegistry,
+    ) -> Result<Self> {
         let elf = elf.as_ref();
         if elf.len() > u32::MAX as usize {
             return Err(Error::ElfTooLarge(elf.len()));
@@ -306,8 +311,8 @@ impl Machine {
         })
     }
 
-    pub fn with_defaults(elf: impl AsRef<[u8]>) -> Result<Self> {
-        Self::new(elf, Options::default())
+    pub fn with_defaults(elf: impl AsRef<[u8]>, registry: &SyscallRegistry) -> Result<Self> {
+        Self::new(elf, Options::default(), registry)
     }
 
     pub fn as_raw(&self) -> *mut sys::RISCVMachine {

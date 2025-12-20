@@ -1,4 +1,4 @@
-use libriscv::{Machine, Options, Registers, Result};
+use libriscv::{Machine, Options, Registers, Result, SyscallRegistry};
 
 fn reserve_stack(regs: &mut Registers<'_>, size: usize) -> Result<u64> {
     let sp = regs.x(2)?;
@@ -20,7 +20,8 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .args(args[1..].iter())
         .build()?;
 
-    let mut machine = Machine::new(elf, options)?;
+    let registry = SyscallRegistry::empty();
+    let mut machine = Machine::new(elf, options, &registry)?;
     machine.run(32_000_000)?;
 
     if let Some(addr) = machine.address_of("my_function")? {

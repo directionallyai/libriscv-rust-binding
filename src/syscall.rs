@@ -315,6 +315,50 @@ impl SyscallHandler {
     }
 }
 
+/// Builder for registering syscall handlers before creating machines.
+pub struct SyscallRegistryBuilder {
+    _not_send_sync: PhantomData<Rc<()>>,
+}
+
+impl SyscallRegistryBuilder {
+    pub fn new() -> Self {
+        Self {
+            _not_send_sync: PhantomData,
+        }
+    }
+
+    /// Register a global system call handler with a validated syscall index.
+    pub fn register(&mut self, num: SyscallId, handler: SyscallHandler) -> Result<()> {
+        register_syscall_handler(num, handler)
+    }
+
+    pub fn build(self) -> SyscallRegistry {
+        SyscallRegistry {
+            _not_send_sync: PhantomData,
+        }
+    }
+}
+
+impl Default for SyscallRegistryBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Token that marks syscall handlers as finalized for machine creation.
+pub struct SyscallRegistry {
+    _not_send_sync: PhantomData<Rc<()>>,
+}
+
+impl SyscallRegistry {
+    /// Create a registry with no handlers.
+    pub fn empty() -> Self {
+        Self {
+            _not_send_sync: PhantomData,
+        }
+    }
+}
+
 /// Output handling for callback handlers.
 pub trait SyscallHandlerOutput {
     /// Convert a handler return value into its side effects.
@@ -342,7 +386,7 @@ impl<T> SyscallHandlerOutput for SyscallResult<T> {
 }
 
 /// Install a global system call handler with validated syscall index.
-pub fn register_syscall_handler(num: SyscallId, handler: SyscallHandler) -> Result<()> {
+fn register_syscall_handler(num: SyscallId, handler: SyscallHandler) -> Result<()> {
     let code = unsafe { sys::libriscv_set_syscall_handler(num.get(), handler.0) };
     check_code("libriscv_set_syscall_handler", code)
 }

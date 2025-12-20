@@ -1,6 +1,5 @@
 use libriscv::{
     error_handler,
-    register_syscall_handler,
     stdout_handler,
     syscall_handler,
     ErrorContext,
@@ -11,6 +10,7 @@ use libriscv::{
     StdoutContext,
     SyscallContext,
     SyscallId,
+    SyscallRegistryBuilder,
     SyscallResult,
 };
 use std::ffi::CStr;
@@ -161,10 +161,12 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let elf = std::fs::read(&args[1])?;
 
-    register_syscall_handler(SyscallId::new(500)?, host_function_500_handler())?;
-    register_syscall_handler(SyscallId::new(501)?, host_function_501_handler())?;
-    register_syscall_handler(SyscallId::new(502)?, host_function_502_handler())?;
-    register_syscall_handler(SyscallId::new(503)?, host_function_503_handler())?;
+    let mut registry_builder = SyscallRegistryBuilder::new();
+    registry_builder.register(SyscallId::new(500)?, host_function_500_handler())?;
+    registry_builder.register(SyscallId::new(501)?, host_function_501_handler())?;
+    registry_builder.register(SyscallId::new(502)?, host_function_502_handler())?;
+    registry_builder.register(SyscallId::new(503)?, host_function_503_handler())?;
+    let registry = registry_builder.build();
 
     let options = Options::builder()
         .stdout_handler(stdout_callback_handler())
@@ -172,7 +174,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .args(["program"])
         .build()?;
 
-    let mut machine = Machine::new(elf, options)?;
+    let mut machine = Machine::new(elf, options, &registry)?;
     machine.run(u64::MAX)?;
 
     let addr = HOST_FN_ADDR.load(Ordering::Relaxed);

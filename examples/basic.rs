@@ -1,4 +1,4 @@
-use libriscv::{Machine, Options};
+use libriscv::{Machine, Options, SyscallRegistry};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -13,7 +13,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .args(args[1..].iter())
         .build()?;
 
-    let mut machine = Machine::new(elf, options)?;
+    let registry = SyscallRegistry::empty();
+    let mut machine = Machine::new(elf, options, &registry)?;
     machine.run(u64::MAX)?;
     println!("Program exited with status: {}", machine.return_value());
     Ok(())

@@ -7,11 +7,12 @@ Safe Rust wrapper around libriscv_sys, a fast RISC-V sandbox emulator.
 Add the crate to your dependencies and run a RISC-V ELF:
 
 ```rust
-use libriscv::{Machine, Options};
+use libriscv::{Machine, Options, SyscallRegistry};
 
 let elf = std::fs::read("program").unwrap();
 let options = Options::builder().build().unwrap();
-let mut machine = Machine::new(&elf, options).unwrap();
+let registry = SyscallRegistry::empty();
+let mut machine = Machine::new(&elf, options, &registry).unwrap();
 machine.run(1_000_000).unwrap();
 ```
 
