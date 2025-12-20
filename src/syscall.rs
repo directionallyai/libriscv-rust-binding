@@ -346,26 +346,3 @@ pub fn register_syscall_handler(num: SyscallId, handler: SyscallHandler) -> Resu
     let code = unsafe { sys::libriscv_set_syscall_handler(num.get(), handler.0) };
     check_code("libriscv_set_syscall_handler", code)
 }
-
-/// Install a global system call handler.
-///
-/// # Safety
-/// The handler is invoked by the global libriscv runtime and must obey the
-/// safety requirements of the C API (including any threading or reentrancy
-/// constraints).
-///
-/// Prefer using the safe `#[syscall_handler]` attribute and
-/// `register_syscall_handler` unless you need to register a raw C callback.
-pub unsafe fn set_syscall_handler(
-    num: u32,
-    handler: sys::riscv_syscall_handler_t,
-) -> Result<()> {
-    if num >= SYSCALLS_MAX {
-        return Err(Error::InvalidSyscallIndex {
-            index: num as usize,
-            max: (SYSCALLS_MAX - 1) as usize,
-        });
-    }
-    let code = unsafe { sys::libriscv_set_syscall_handler(num, handler) };
-    check_code("libriscv_set_syscall_handler", code)
-}

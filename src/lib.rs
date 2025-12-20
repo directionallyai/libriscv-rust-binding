@@ -16,7 +16,6 @@ mod syscall;
 mod callbacks;
 pub use syscall::{
     register_syscall_handler,
-    set_syscall_handler,
     SyscallContext,
     SyscallHandler,
     SyscallHandlerOutput,
