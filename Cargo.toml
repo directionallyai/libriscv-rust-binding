@@ -13,10 +13,13 @@ exclude = [
     "examples/advanced/rust_program",
 ]
 
+[workspace]
+members = ["libriscv-macros", "."]
+
 [dependencies]
 bytemuck = { version = "1.24", features = ["derive"], optional = true }
 libriscv_sys = { version = "0.1.0" }
-libriscv-macros = { path = "libriscv-macros" }
+libriscv-macros = { version = "0.1.0", path = "libriscv-macros" }
 
 [features]
 default = ["bytemuck"]

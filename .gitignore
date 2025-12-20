@@ -1,4 +1,5 @@
 /target
+/libriscv-macros/target
 .zig-cache
 ./Cargo.lock
 examples/advanced/rust_program/target
