@@ -25,7 +25,7 @@ pub enum Error {
     Library {
         op: &'static str,
         code: i32,
-        message: Option<String>,
+        message: Option<&'static str>,
     },
     NonUtf8Path,
     NullPointer(&'static str),
@@ -65,7 +65,7 @@ impl From<NulError> for Error {
     }
 }
 
-fn error_message(code: i32) -> Option<String> {
+fn error_message(code: i32) -> Option<&'static str> {
     if code >= 0 {
         return None;
     }
@@ -74,7 +74,7 @@ fn error_message(code: i32) -> Option<String> {
         if ptr.is_null() {
             None
         } else {
-            Some(CStr::from_ptr(ptr).to_string_lossy().into_owned())
+            CStr::from_ptr(ptr).to_str().ok()
         }
     }
 }
@@ -414,6 +414,10 @@ impl Machine {
     }
 
     /// Only safe to call from a syscall handler.
+    ///
+    /// # Safety
+    /// The caller must ensure this is invoked from a valid syscall handler
+    /// context for the current machine instance.
     pub unsafe fn trigger_exception(&mut self, exception: u32, data: u64) {
         unsafe {
             sys::libriscv_trigger_exception(self.ptr.as_ptr(), exception, data);
@@ -511,6 +515,11 @@ impl<'a> Registers<'a> {
 }
 
 /// Install a global system call handler.
+///
+/// # Safety
+/// The handler is invoked by the global libriscv runtime and must obey the
+/// safety requirements of the C API (including any threading or reentrancy
+/// constraints).
 pub unsafe fn set_syscall_handler(
     num: u32,
     handler: sys::riscv_syscall_handler_t,
