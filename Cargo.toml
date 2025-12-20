@@ -4,11 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bytemuck = { version = "1.16.1", features = ["derive"] }
+bytemuck = { version = "1.16.1", features = ["derive"], optional = true }
 libriscv_sys = { version = "0.1.0" }
 libriscv-macros = { path = "libriscv-macros" }
 
 [features]
-default = []
+default = ["bytemuck"]
 bindgen = ["libriscv_sys/bindgen"]
 binary-translation = ["libriscv_sys/binary-translation"]
+bytemuck = ["dep:bytemuck"]
