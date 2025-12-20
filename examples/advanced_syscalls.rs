@@ -1,4 +1,7 @@
-use libriscv::{set_syscall_handler, sys, Machine, Options, Registers, Result};
+use libriscv::{
+    register_syscall_handler, syscall_handler, Machine, Options, Registers, Result, SyscallContext,
+    SyscallId,
+};
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_long, c_uint};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -8,12 +11,14 @@ type GuestAddr = u64;
 static HOST_FN_ADDR: AtomicU64 = AtomicU64::new(0);
 
 #[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct Strings {
     count: GuestAddr,
     strings: [GuestAddr; 32],
 }
 
 #[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct Buffers {
     count: GuestAddr,
     buffer: [u8; 256],
@@ -55,105 +60,69 @@ fn write_c_string(dst: &mut [u8], text: &[u8]) -> usize {
     len
 }
 
-unsafe extern "C" fn host_function_500(m: *mut sys::RISCVMachine) {
+#[syscall_handler]
+fn host_function_500(ctx: &mut SyscallContext) -> Result<()> {
     println!("Hello from host function 0!");
-    let regs = unsafe { sys::libriscv_get_registers(m) };
-    if regs.is_null() {
-        eprintln!("host_function_500: no registers");
-        return;
-    }
-    let addr = unsafe { (*regs).r[10] };
-    let ptr = unsafe {
-        sys::libriscv_memview(
-            m,
-            addr,
-            std::mem::size_of::<Strings>() as c_uint,
-        )
+    let addr = {
+        let regs = ctx.registers()?;
+        regs.x(10)?
     };
-    if ptr.is_null() {
-        eprintln!("host_function_500: bad pointer");
-        return;
-    }
-    let strings = unsafe { &*(ptr as *const Strings) };
+    let strings: Strings = ctx.read_pod(addr)?;
     let count = (strings.count as usize).min(strings.strings.len());
     for i in 0..count {
-        let mut len: c_uint = 0;
-        let s = unsafe { sys::libriscv_memstring(m, strings.strings[i], 256, &mut len) };
-        if s.is_null() {
-            continue;
-        }
-        let slice = unsafe { std::slice::from_raw_parts(s as *const u8, len as usize) };
+        let slice = match ctx.memstring(strings.strings[i], 256) {
+            Ok(slice) => slice,
+            Err(_) => continue,
+        };
         println!("  {}", String::from_utf8_lossy(slice));
     }
+    Ok(())
 }
 
-unsafe extern "C" fn host_function_501(m: *mut sys::RISCVMachine) {
+#[syscall_handler]
+fn host_function_501(ctx: &mut SyscallContext) -> Result<()> {
     println!("Hello from host function 1!");
-    let regs = unsafe { sys::libriscv_get_registers(m) };
-    if regs.is_null() {
-        eprintln!("host_function_501: no registers");
-        return;
-    }
-    let addr = unsafe { (*regs).r[10] };
-    let ptr = unsafe {
-        sys::libriscv_writable_memview(
-            m,
-            addr,
-            std::mem::size_of::<Buffers>() as c_uint,
-        )
-    };
-    if ptr.is_null() {
-        eprintln!("host_function_501: bad pointer");
-        return;
-    }
-    let buf = unsafe { &mut *(ptr as *mut Buffers) };
+    let addr = ctx.registers()?.x(10)?;
+    let mut buf: Buffers = ctx.read_pod(addr)?;
     let len = write_c_string(&mut buf.buffer, b"Hello from host function 1!");
     buf.count = len as GuestAddr;
 
     let another_len = buf.another_count as usize;
     if another_len == 0 {
-        return;
+        ctx.write_pod(addr, &buf)?;
+        return Ok(());
     }
     if another_len > c_uint::MAX as usize {
         eprintln!("host_function_501: another buffer too large");
-        return;
+        ctx.write_pod(addr, &buf)?;
+        return Ok(());
     }
-    let another_ptr =
-        unsafe { sys::libriscv_writable_memview(m, buf.another_buffer_address, another_len as c_uint) };
-    if another_ptr.is_null() {
-        eprintln!("host_function_501: invalid another buffer");
-        return;
-    }
-    let another_slice = unsafe { std::slice::from_raw_parts_mut(another_ptr as *mut u8, another_len) };
+    let another_slice = ctx.writable_memview(buf.another_buffer_address, another_len)?;
     let second = b"Another buffer from host function 1!";
     if second.len() >= another_len {
         eprintln!("host_function_501: another buffer too small");
-        return;
+        ctx.write_pod(addr, &buf)?;
+        return Ok(());
     }
     let len = write_c_string(another_slice, second);
     buf.another_count = len as GuestAddr;
+    ctx.write_pod(addr, &buf)?;
+    Ok(())
 }
 
-unsafe extern "C" fn host_function_502(m: *mut sys::RISCVMachine) {
-    let regs = unsafe { sys::libriscv_get_registers(m) };
-    if regs.is_null() {
-        eprintln!("host_function_502: no registers");
-        return;
-    }
-    let addr = unsafe { (*regs).r[10] };
+#[syscall_handler]
+fn host_function_502(ctx: &mut SyscallContext) -> Result<()> {
+    let addr = ctx.registers()?.x(10)?;
     HOST_FN_ADDR.store(addr, Ordering::Relaxed);
+    Ok(())
 }
 
-unsafe extern "C" fn host_function_503(m: *mut sys::RISCVMachine) {
-    let regs = unsafe { sys::libriscv_get_registers(m) };
-    if regs.is_null() {
-        eprintln!("host_function_503: no registers");
-        return;
-    }
-    let regs = unsafe { &mut *regs };
-    let mut x = unsafe { regs.fr[10].f32_[0] };
-    let mut y = unsafe { regs.fr[11].f32_[0] };
-    let mut z = unsafe { regs.fr[12].f32_[0] };
+#[syscall_handler]
+fn host_function_503(ctx: &mut SyscallContext) -> Result<()> {
+    let mut regs = ctx.registers()?;
+    let mut x = regs.f32(10)?;
+    let mut y = regs.f32(11)?;
+    let mut z = regs.f32(12)?;
 
     let len = (x * x + y * y + z * z).sqrt();
     if len > 0.0 {
@@ -163,11 +132,10 @@ unsafe extern "C" fn host_function_503(m: *mut sys::RISCVMachine) {
         z *= inv;
     }
 
-    unsafe {
-        regs.fr[10].f32_[0] = x;
-        regs.fr[11].f32_[0] = y;
-        regs.fr[12].f32_[0] = z;
-    }
+    regs.set_f32(10, x)?;
+    regs.set_f32(11, y)?;
+    regs.set_f32(12, z)?;
+    Ok(())
 }
 
 fn reserve_stack(regs: &mut Registers<'_>, size: usize) -> Result<u64> {
@@ -186,12 +154,10 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let elf = std::fs::read(&args[1])?;
 
-    unsafe {
-        set_syscall_handler(500, Some(host_function_500))?;
-        set_syscall_handler(501, Some(host_function_501))?;
-        set_syscall_handler(502, Some(host_function_502))?;
-        set_syscall_handler(503, Some(host_function_503))?;
-    }
+    register_syscall_handler(SyscallId::new(500)?, host_function_500_handler())?;
+    register_syscall_handler(SyscallId::new(501)?, host_function_501_handler())?;
+    register_syscall_handler(SyscallId::new(502)?, host_function_502_handler())?;
+    register_syscall_handler(SyscallId::new(503)?, host_function_503_handler())?;
 
     let options = Options::builder()
         .stdout_handler(Some(stdout_callback))

@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+bytemuck = { version = "1.16.1", features = ["derive"] }
 libriscv_sys = { version = "0.1.0" }
+libriscv-macros = { path = "libriscv-macros" }
 
 [features]
 default = []
