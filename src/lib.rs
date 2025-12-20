@@ -13,6 +13,7 @@ use std::ptr::{self, NonNull};
 use std::rc::Rc;
 
 mod syscall;
+mod callbacks;
 pub use syscall::{
     register_syscall_handler,
     set_syscall_handler,
@@ -24,12 +25,20 @@ pub use syscall::{
     SyscallRegisters,
     SYSCALLS_MAX,
 };
+pub use callbacks::{
+    ErrorContext,
+    ErrorHandler,
+    ErrorType,
+    Opaque,
+    StdoutHandler,
+    StdoutContext,
+};
 
 pub mod sys {
     pub use libriscv_sys::*;
 }
 
-pub use libriscv_macros::syscall_handler;
+pub use libriscv_macros::{error_handler, stdout_handler, syscall_handler};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -200,13 +209,13 @@ impl OptionsBuilder {
         self
     }
 
-    pub fn error_handler(mut self, handler: sys::riscv_error_func_t) -> Self {
-        self.raw.error = handler;
+    pub fn error_handler(mut self, handler: ErrorHandler) -> Self {
+        self.raw.error = handler.0;
         self
     }
 
-    pub fn stdout_handler(mut self, handler: sys::riscv_stdout_func_t) -> Self {
-        self.raw.stdout = handler;
+    pub fn stdout_handler(mut self, handler: StdoutHandler) -> Self {
+        self.raw.stdout = handler.0;
         self
     }
 

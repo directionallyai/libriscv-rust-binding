@@ -315,7 +315,7 @@ impl SyscallHandler {
     }
 }
 
-/// Output handling for syscall handlers.
+/// Output handling for callback handlers.
 pub trait SyscallHandlerOutput {
     /// Convert a handler return value into its side effects.
     fn handle(self);

@@ -1,9 +1,20 @@
 use libriscv::{
-    register_syscall_handler, syscall_handler, Machine, Options, Registers, Result, SyscallContext,
-    SyscallId, SyscallResult,
+    error_handler,
+    register_syscall_handler,
+    stdout_handler,
+    syscall_handler,
+    ErrorContext,
+    Machine,
+    Options,
+    Registers,
+    Result,
+    StdoutContext,
+    SyscallContext,
+    SyscallId,
+    SyscallResult,
 };
 use std::ffi::CStr;
-use std::os::raw::{c_char, c_long, c_uint};
+use std::os::raw::c_uint;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 type GuestAddr = u64;
@@ -26,25 +37,22 @@ struct Buffers {
     another_buffer_address: GuestAddr,
 }
 
-unsafe extern "C" fn error_callback(
-    _opaque: *mut std::ffi::c_void,
-    _type: i32,
-    msg: *const c_char,
-    data: c_long,
-) {
-    if msg.is_null() {
-        eprintln!("Error: <null> (data: 0x{:X})", data);
-        return;
-    }
-    let text = unsafe { CStr::from_ptr(msg) }.to_string_lossy();
+#[error_handler]
+fn error_callback(ctx: &mut ErrorContext) {
+    let data = ctx.data();
+    let text = ctx
+        .message()
+        .map(CStr::to_string_lossy)
+        .unwrap_or_else(|| "<null>".into());
     eprintln!("Error: {} (data: 0x{:X})", text, data);
 }
 
-unsafe extern "C" fn stdout_callback(_opaque: *mut std::ffi::c_void, msg: *const c_char, len: c_uint) {
-    if msg.is_null() || len == 0 {
+#[stdout_handler]
+fn stdout_callback(ctx: &mut StdoutContext) {
+    let slice = ctx.data();
+    if slice.is_empty() {
         return;
     }
-    let slice = unsafe { std::slice::from_raw_parts(msg as *const u8, len as usize) };
     let text = String::from_utf8_lossy(slice);
     print!("[libriscv] stdout: {}", text);
 }
@@ -160,8 +168,8 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     register_syscall_handler(SyscallId::new(503)?, host_function_503_handler())?;
 
     let options = Options::builder()
-        .stdout_handler(Some(stdout_callback))
-        .error_handler(Some(error_callback))
+        .stdout_handler(stdout_callback_handler())
+        .error_handler(error_callback_handler())
         .args(["program"])
         .build()?;
 
