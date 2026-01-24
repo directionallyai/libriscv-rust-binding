@@ -1,17 +1,6 @@
 use libriscv::{
-    error_handler,
-    stdout_handler,
-    syscall_handler,
-    ErrorContext,
-    Machine,
-    Options,
-    Registers,
-    Result,
-    StdoutContext,
-    SyscallContext,
-    SyscallId,
-    SyscallRegistryBuilder,
-    SyscallResult,
+    error_handler, stdout_handler, syscall, syscall_registry, ErrorContext, Machine, Options,
+    Registers, Result, StdoutContext, SyscallContext, SyscallResult,
 };
 use std::ffi::CStr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -67,82 +56,87 @@ fn write_c_string(dst: &mut [u8], text: &[u8]) -> usize {
     len
 }
 
-#[syscall_handler]
-fn host_function_500(ctx: &mut SyscallContext) -> SyscallResult<()> {
-    println!("Hello from host function 0!");
-    let addr = {
-        let regs = ctx.registers()?;
-        regs.x(10)?
-    };
-    let strings: Strings = ctx.read_pod(addr)?;
-    let count = (strings.count as usize).min(strings.strings.len());
-    for i in 0..count {
-        let slice = match ctx.memstring(strings.strings[i], 256) {
-            Ok(slice) => slice,
-            Err(_) => continue,
+#[syscall_registry]
+mod host_syscalls {
+    use super::*;
+
+    #[syscall(id = 500)]
+    fn host_function_500(ctx: &mut SyscallContext) -> SyscallResult<()> {
+        println!("Hello from host function 0!");
+        let addr = {
+            let regs = ctx.registers()?;
+            regs.x(10)?
         };
-        println!("  {}", String::from_utf8_lossy(slice));
+        let strings: Strings = ctx.read_pod(addr)?;
+        let count = (strings.count as usize).min(strings.strings.len());
+        for i in 0..count {
+            let slice = match ctx.memstring(strings.strings[i], 256) {
+                Ok(slice) => slice,
+                Err(_) => continue,
+            };
+            println!("  {}", String::from_utf8_lossy(slice));
+        }
+        Ok(())
     }
-    Ok(())
-}
 
-#[syscall_handler]
-fn host_function_501(ctx: &mut SyscallContext) -> SyscallResult<()> {
-    println!("Hello from host function 501!");
-    let addr = ctx.registers()?.x(10)?;
-    let mut buf: Buffers = ctx.read_pod(addr)?;
-    let len = write_c_string(&mut buf.buffer, b"Hello from host function 501!");
-    buf.count = len as GuestAddr;
+    #[syscall(id = 501)]
+    fn host_function_501(ctx: &mut SyscallContext) -> SyscallResult<()> {
+        println!("Hello from host function 501!");
+        let addr = ctx.registers()?.x(10)?;
+        let mut buf: Buffers = ctx.read_pod(addr)?;
+        let len = write_c_string(&mut buf.buffer, b"Hello from host function 501!");
+        buf.count = len as GuestAddr;
 
-    let another_len = buf.another_count as usize;
-    if another_len == 0 {
+        let another_len = buf.another_count as usize;
+        if another_len == 0 {
+            ctx.write_pod(addr, &buf)?;
+            return Ok(());
+        }
+        if another_len > u32::MAX as usize {
+            eprintln!("host_function_501: another buffer too large");
+            ctx.write_pod(addr, &buf)?;
+            return Ok(());
+        }
+        let another_slice = ctx.writable_memview(buf.another_buffer_address, another_len)?;
+        let second = b"Another buffer from host function 501!";
+        if second.len() >= another_len {
+            eprintln!("host_function_501: another buffer too small");
+            ctx.write_pod(addr, &buf)?;
+            return Ok(());
+        }
+        let len = write_c_string(another_slice, second);
+        buf.another_count = len as GuestAddr;
         ctx.write_pod(addr, &buf)?;
-        return Ok(());
-    }
-    if another_len > u32::MAX as usize {
-        eprintln!("host_function_501: another buffer too large");
-        ctx.write_pod(addr, &buf)?;
-        return Ok(());
-    }
-    let another_slice = ctx.writable_memview(buf.another_buffer_address, another_len)?;
-    let second = b"Another buffer from host function 501!";
-    if second.len() >= another_len {
-        eprintln!("host_function_501: another buffer too small");
-        ctx.write_pod(addr, &buf)?;
-        return Ok(());
-    }
-    let len = write_c_string(another_slice, second);
-    buf.another_count = len as GuestAddr;
-    ctx.write_pod(addr, &buf)?;
-    Ok(())
-}
-
-#[syscall_handler]
-fn host_function_502(ctx: &mut SyscallContext) -> SyscallResult<()> {
-    let addr = ctx.registers()?.x(10)?;
-    HOST_FN_ADDR.store(addr, Ordering::Relaxed);
-    Ok(())
-}
-
-#[syscall_handler]
-fn host_function_503(ctx: &mut SyscallContext) -> SyscallResult<()> {
-    let mut regs = ctx.registers()?;
-    let mut x = regs.f32(10)?;
-    let mut y = regs.f32(11)?;
-    let mut z = regs.f32(12)?;
-
-    let len = (x * x + y * y + z * z).sqrt();
-    if len > 0.0 {
-        let inv = 1.0 / len;
-        x *= inv;
-        y *= inv;
-        z *= inv;
+        Ok(())
     }
 
-    regs.set_f32(10, x)?;
-    regs.set_f32(11, y)?;
-    regs.set_f32(12, z)?;
-    Ok(())
+    #[syscall(id = 502)]
+    fn host_function_502(ctx: &mut SyscallContext) -> SyscallResult<()> {
+        let addr = ctx.registers()?.x(10)?;
+        HOST_FN_ADDR.store(addr, Ordering::Relaxed);
+        Ok(())
+    }
+
+    #[syscall(id = 503)]
+    fn host_function_503(ctx: &mut SyscallContext) -> SyscallResult<()> {
+        let mut regs = ctx.registers()?;
+        let mut x = regs.f32(10)?;
+        let mut y = regs.f32(11)?;
+        let mut z = regs.f32(12)?;
+
+        let len = (x * x + y * y + z * z).sqrt();
+        if len > 0.0 {
+            let inv = 1.0 / len;
+            x *= inv;
+            y *= inv;
+            z *= inv;
+        }
+
+        regs.set_f32(10, x)?;
+        regs.set_f32(11, y)?;
+        regs.set_f32(12, z)?;
+        Ok(())
+    }
 }
 
 fn reserve_stack(regs: &mut Registers<'_>, size: usize) -> Result<u64> {
@@ -161,12 +155,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let elf = std::fs::read(&args[1])?;
 
-    let mut registry_builder = SyscallRegistryBuilder::new();
-    registry_builder.register(SyscallId::new(500)?, host_function_500_handler())?;
-    registry_builder.register(SyscallId::new(501)?, host_function_501_handler())?;
-    registry_builder.register(SyscallId::new(502)?, host_function_502_handler())?;
-    registry_builder.register(SyscallId::new(503)?, host_function_503_handler())?;
-    let registry = registry_builder.build();
+    let registry = host_syscalls::registry()?;
 
     let options = Options::builder()
         .stdout_handler(stdout_callback_handler())

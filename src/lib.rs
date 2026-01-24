@@ -38,7 +38,7 @@ pub mod sys {
     pub use libriscv_sys::*;
 }
 
-pub use libriscv_macros::{error_handler, stdout_handler, syscall_handler};
+pub use libriscv_macros::{error_handler, stdout_handler, syscall, syscall_handler, syscall_registry};
 
 pub type Result<T> = std::result::Result<T, Error>;
 

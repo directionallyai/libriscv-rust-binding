@@ -1,0 +1,5 @@
+error: duplicate syscall id 500
+  --> tests/fixtures/syscall_registry_duplicate.rs:14:5
+   |
+14 |     #[syscall(id = 500)]
+   |     ^

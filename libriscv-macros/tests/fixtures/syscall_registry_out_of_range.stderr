@@ -1,0 +1,5 @@
+error[E0080]: evaluation panicked: syscall id exceeds SYSCALLS_MAX
+ --> tests/fixtures/syscall_registry_out_of_range.rs:7:5
+  |
+7 |     #[syscall(id = 512)]
+  |     ^^^^^^^^^^^^^^^^^^^^ evaluation of `host_syscalls::_` failed here

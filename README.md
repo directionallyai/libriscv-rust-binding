@@ -16,6 +16,24 @@ let mut machine = Machine::new(&elf, options, &registry).unwrap();
 machine.run(1_000_000).unwrap();
 ```
 
+You can also define registries using the macros:
+
+```rust
+use libriscv::{syscall, syscall_registry, SyscallContext, SyscallResult};
+
+#[syscall_registry]
+mod host_syscalls {
+    use super::*;
+
+    #[syscall(id = 1)]
+    fn write(_ctx: &mut SyscallContext) -> SyscallResult<()> {
+        Ok(())
+    }
+}
+
+let registry = host_syscalls::registry().unwrap();
+```
+
 See `examples/` for more usage patterns.
 
 ## Credits
