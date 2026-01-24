@@ -1,6 +1,6 @@
 [package]
 name = "libriscv"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 authors = ["nemurubaka <cijiugechu@gmail.com>"]
 description = "Safe wrapper for libriscv_sys, a fast RISC-V sandbox emulator"
@@ -19,7 +19,7 @@ members = ["libriscv-macros", "."]
 [dependencies]
 bytemuck = { version = "1.24", features = ["derive"], optional = true }
 libriscv_sys = { version = "0.1.0" }
-libriscv-macros = { version = "0.1.0", path = "libriscv-macros" }
+libriscv-macros = { version = "0.2.0", path = "libriscv-macros" }
 
 [features]
 default = ["bytemuck"]
