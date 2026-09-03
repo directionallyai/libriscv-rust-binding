@@ -12,33 +12,21 @@ use std::path::Path;
 use std::ptr::{self, NonNull};
 use std::rc::Rc;
 
-mod syscall;
 mod callbacks;
+mod syscall;
+pub use callbacks::{ErrorContext, ErrorHandler, ErrorType, Opaque, StdoutContext, StdoutHandler};
 pub use syscall::{
-    SyscallContext,
-    SyscallHandler,
-    SyscallHandlerOutput,
-    SyscallId,
-    SyscallRegistry,
-    SyscallRegistryBuilder,
-    SyscallResult,
-    SyscallRegisters,
-    SYSCALLS_MAX,
-};
-pub use callbacks::{
-    ErrorContext,
-    ErrorHandler,
-    ErrorType,
-    Opaque,
-    StdoutHandler,
-    StdoutContext,
+    SYSCALLS_MAX, SyscallContext, SyscallHandler, SyscallHandlerOutput, SyscallId,
+    SyscallRegisters, SyscallRegistry, SyscallRegistryBuilder, SyscallResult,
 };
 
 pub mod sys {
     pub use libriscv_sys::*;
 }
 
-pub use libriscv_macros::{error_handler, stdout_handler, syscall, syscall_handler, syscall_registry};
+pub use libriscv_macros::{
+    error_handler, stdout_handler, syscall, syscall_handler, syscall_registry,
+};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -46,9 +34,18 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     ArgsTooLarge(usize),
     ElfTooLarge(usize),
-    InvalidRegisterIndex { index: usize, max: usize },
-    InvalidSyscallIndex { index: usize, max: usize },
-    LengthTooLarge { op: &'static str, len: usize },
+    InvalidRegisterIndex {
+        index: usize,
+        max: usize,
+    },
+    InvalidSyscallIndex {
+        index: usize,
+        max: usize,
+    },
+    LengthTooLarge {
+        op: &'static str,
+        len: usize,
+    },
     Library {
         op: &'static str,
         code: i32,
@@ -121,6 +118,12 @@ fn check_code(op: &'static str, code: i32) -> Result<()> {
     }
 }
 
+/// Install native memory syscalls globally for subsequently created machines.
+pub fn setup_native_memory(syscall_base: u32) -> Result<()> {
+    let code = unsafe { sys::libriscv_setup_native_memory(syscall_base) };
+    check_code("libriscv_setup_native_memory", code)
+}
+
 fn default_raw_options() -> sys::RISCVOptions {
     let mut raw = std::mem::MaybeUninit::<sys::RISCVOptions>::zeroed();
     unsafe {
@@ -144,6 +147,7 @@ pub struct Options {
 struct OptionsKeepAlive {
     _args: Vec<CString>,
     _argv_ptrs: Vec<*const c_char>,
+    _default_exit_function: Option<CString>,
 }
 
 impl Options {
@@ -166,6 +170,7 @@ impl Options {
 pub struct OptionsBuilder {
     raw: sys::RISCVOptions,
     args: Vec<String>,
+    default_exit_function: Option<String>,
 }
 
 impl OptionsBuilder {
@@ -174,6 +179,7 @@ impl OptionsBuilder {
         Self {
             raw: default_raw_options(),
             args: Vec::new(),
+            default_exit_function: None,
         }
     }
 
@@ -189,6 +195,46 @@ impl OptionsBuilder {
 
     pub fn strict_sandbox(mut self, strict: bool) -> Self {
         self.raw.strict_sandbox = if strict { 1 } else { 0 };
+        self
+    }
+
+    pub fn use_memory_arena(mut self, enabled: bool) -> Self {
+        self.raw.use_memory_arena = if enabled { 1 } else { 0 };
+        self
+    }
+
+    pub fn use_shared_execute_segments(mut self, enabled: bool) -> Self {
+        self.raw.use_shared_execute_segments = if enabled { 1 } else { 0 };
+        self
+    }
+
+    pub fn default_exit_function(mut self, symbol: impl Into<String>) -> Self {
+        self.default_exit_function = Some(symbol.into());
+        self
+    }
+
+    pub fn clear_default_exit_function(mut self) -> Self {
+        self.default_exit_function = None;
+        self
+    }
+
+    pub fn load_program(mut self, enabled: bool) -> Self {
+        self.raw.load_program = if enabled { 1 } else { 0 };
+        self
+    }
+
+    pub fn protect_segments(mut self, enabled: bool) -> Self {
+        self.raw.protect_segments = if enabled { 1 } else { 0 };
+        self
+    }
+
+    pub fn native_syscall_base(mut self, base: u32) -> Self {
+        self.raw.native_syscall_base = base;
+        self
+    }
+
+    pub fn arena_size(mut self, bytes: u64) -> Self {
+        self.raw.arena_size = bytes;
         self
     }
 
@@ -236,10 +282,12 @@ impl OptionsBuilder {
             .map(CString::new)
             .collect::<std::result::Result<Vec<_>, _>>()?;
         let argv_ptrs: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
+        let default_exit_function = self.default_exit_function.map(CString::new).transpose()?;
 
         let keepalive = OptionsKeepAlive {
             _args: args,
             _argv_ptrs: argv_ptrs,
+            _default_exit_function: default_exit_function,
         };
         self.raw.argc = keepalive._argv_ptrs.len() as c_uint;
         self.raw.argv = if keepalive._argv_ptrs.is_empty() {
@@ -247,6 +295,10 @@ impl OptionsBuilder {
         } else {
             keepalive._argv_ptrs.as_ptr() as *mut *const c_char
         };
+        self.raw.default_exit_function = keepalive
+            ._default_exit_function
+            .as_ref()
+            .map_or(ptr::null(), |symbol| symbol.as_ptr());
 
         Ok(Options {
             raw: self.raw,
@@ -260,6 +312,7 @@ impl OptionsKeepAlive {
         Self {
             _args: Vec::new(),
             _argv_ptrs: Vec::new(),
+            _default_exit_function: None,
         }
     }
 }
@@ -276,6 +329,13 @@ impl Default for Options {
     }
 }
 
+/// Result of reallocating a native arena allocation.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct ArenaReallocResult {
+    pub address: u64,
+    pub old_size: u64,
+}
+
 /// A running instance of the libriscv machine.
 pub struct Machine {
     ptr: NonNull<sys::RISCVMachine>,
@@ -287,7 +347,7 @@ pub struct Machine {
 impl Machine {
     pub fn new(
         elf: impl AsRef<[u8]>,
-        mut options: Options,
+        options: Options,
         _registry: &SyscallRegistry,
     ) -> Result<Self> {
         let elf = elf.as_ref();
@@ -299,7 +359,7 @@ impl Machine {
             sys::libriscv_new(
                 owned.as_ptr() as *const c_void,
                 owned.len() as c_uint,
-                &mut options.raw,
+                &options.raw,
             )
         };
         let ptr = NonNull::new(ptr).ok_or(Error::NullPointer("libriscv_new"))?;
@@ -324,6 +384,18 @@ impl Machine {
         check_code("libriscv_run", code)
     }
 
+    pub fn step_one(&mut self, verbose: bool) -> Result<Option<u64>> {
+        let result = unsafe { sys::libriscv_step_one(self.ptr.as_ptr(), i32::from(verbose)) };
+        if result < 0 {
+            return Err(Error::Library {
+                op: "libriscv_step_one",
+                code: result as i32,
+                message: error_message(result as i32),
+            });
+        }
+        Ok((result != 0).then_some(result as u64))
+    }
+
     pub fn stop(&mut self) {
         unsafe {
             sys::libriscv_stop(self.ptr.as_ptr());
@@ -343,14 +415,16 @@ impl Machine {
         unsafe { sys::libriscv_return_value(self.ptr.as_ptr()) }
     }
 
+    pub fn set_result_register(&mut self, value: i64) {
+        unsafe {
+            sys::libriscv_set_result_register(self.ptr.as_ptr(), value);
+        }
+    }
+
     pub fn address_of(&self, name: &str) -> Result<Option<u64>> {
         let c_name = CString::new(name)?;
         let addr = unsafe { sys::libriscv_address_of(self.ptr.as_ptr(), c_name.as_ptr()) };
-        if addr == 0 {
-            Ok(None)
-        } else {
-            Ok(Some(addr))
-        }
+        if addr == 0 { Ok(None) } else { Ok(Some(addr)) }
     }
 
     pub fn opaque(&self) -> *mut c_void {
@@ -359,6 +433,10 @@ impl Machine {
 
     pub fn instruction_counter(&self) -> u64 {
         unsafe { sys::libriscv_instruction_counter(self.ptr.as_ptr()) }
+    }
+
+    pub fn instruction_limit_reached(&self) -> bool {
+        unsafe { sys::libriscv_instruction_limit_reached(self.ptr.as_ptr()) != 0 }
     }
 
     pub fn max_instruction_counter(&mut self) -> Option<&mut u64> {
@@ -375,6 +453,81 @@ impl Machine {
     pub fn setup_vmcall(&mut self, address: u64) -> Result<()> {
         let code = unsafe { sys::libriscv_setup_vmcall(self.ptr.as_ptr(), address) };
         check_code("libriscv_setup_vmcall", code)
+    }
+
+    pub fn setup_linux_syscalls(&mut self, filesystem: bool, sockets: bool) -> Result<()> {
+        let code = unsafe {
+            sys::libriscv_setup_linux_syscalls(
+                self.ptr.as_ptr(),
+                i32::from(filesystem),
+                i32::from(sockets),
+            )
+        };
+        check_code("libriscv_setup_linux_syscalls", code)
+    }
+
+    pub fn setup_posix_threads(&mut self) -> Result<()> {
+        let code = unsafe { sys::libriscv_setup_posix_threads(self.ptr.as_ptr()) };
+        check_code("libriscv_setup_posix_threads", code)
+    }
+
+    pub fn setup_arena(&mut self, syscall_base: u32, address: u64, size: u64) -> Result<()> {
+        let code =
+            unsafe { sys::libriscv_setup_arena(self.ptr.as_ptr(), syscall_base, address, size) };
+        check_code("libriscv_setup_arena", code)
+    }
+
+    pub fn has_arena(&self) -> bool {
+        unsafe { sys::libriscv_has_arena(self.ptr.as_ptr()) != 0 }
+    }
+
+    pub fn arena_malloc(&mut self, size: u64) -> Option<u64> {
+        let address = unsafe { sys::libriscv_arena_malloc(self.ptr.as_ptr(), size) };
+        (address != 0).then_some(address)
+    }
+
+    pub fn arena_free(&mut self, address: u64) -> Result<()> {
+        let code = unsafe { sys::libriscv_arena_free(self.ptr.as_ptr(), address) };
+        check_code("libriscv_arena_free", code)
+    }
+
+    pub fn arena_realloc(&mut self, address: u64, new_size: u64) -> ArenaReallocResult {
+        let result = unsafe { sys::libriscv_arena_realloc(self.ptr.as_ptr(), address, new_size) };
+        ArenaReallocResult {
+            address: result.ptr,
+            old_size: result.old_size,
+        }
+    }
+
+    pub fn arena_allocation_size(&mut self, address: u64) -> Option<u64> {
+        let size = unsafe { sys::libriscv_arena_size(self.ptr.as_ptr(), address) };
+        (size != 0).then_some(size)
+    }
+
+    pub fn arena_high_watermark(&self) -> u64 {
+        unsafe { sys::libriscv_arena_high_watermark(self.ptr.as_ptr()) }
+    }
+
+    pub fn transfer_arena_from(&mut self, source: &Machine) -> Result<()> {
+        let code = unsafe { sys::libriscv_transfer_arena(self.ptr.as_ptr(), source.ptr.as_ptr()) };
+        check_code("libriscv_transfer_arena", code)
+    }
+
+    pub fn heap_address(&self) -> u64 {
+        unsafe { sys::libriscv_heap_address(self.ptr.as_ptr()) }
+    }
+
+    pub fn mmap_allocate(&mut self, bytes: u64) -> Option<u64> {
+        let address = unsafe { sys::libriscv_mmap_allocate(self.ptr.as_ptr(), bytes) };
+        (address != 0).then_some(address)
+    }
+
+    pub fn initial_stack_address(&self) -> u64 {
+        unsafe { sys::libriscv_stack_initial(self.ptr.as_ptr()) }
+    }
+
+    pub fn owned_pages_active(&self) -> u64 {
+        unsafe { sys::libriscv_owned_pages_active(self.ptr.as_ptr()) }
     }
 
     pub fn copy_to_guest(&mut self, dst: u64, src: &[u8]) -> Result<()> {
@@ -431,10 +584,11 @@ impl Machine {
 
     pub fn memstring(&mut self, src: u64, maxlen: u32) -> Result<Vec<u8>> {
         let mut length: c_uint = 0;
+        let ptr = unsafe { sys::libriscv_memstring(self.ptr.as_ptr(), src, maxlen, &mut length) };
         let ptr =
-            unsafe { sys::libriscv_memstring(self.ptr.as_ptr(), src, maxlen, &mut length) };
-        let ptr = NonNull::new(ptr as *mut c_char).ok_or(Error::NullPointer("libriscv_memstring"))?;
-        let slice = unsafe { std::slice::from_raw_parts(ptr.as_ptr() as *const u8, length as usize) };
+            NonNull::new(ptr as *mut c_char).ok_or(Error::NullPointer("libriscv_memstring"))?;
+        let slice =
+            unsafe { std::slice::from_raw_parts(ptr.as_ptr() as *const u8, length as usize) };
         Ok(slice.to_vec())
     }
 
@@ -545,5 +699,37 @@ impl<'a> Registers<'a> {
         let regs = unsafe { self.ptr.as_mut() };
         regs.fr[index].f64_ = value;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn v1_20_options_keep_owned_strings_alive() {
+        let options = Options::builder()
+            .use_memory_arena(false)
+            .use_shared_execute_segments(false)
+            .default_exit_function("return_to_host")
+            .load_program(false)
+            .protect_segments(false)
+            .native_syscall_base(1000)
+            .arena_size(16 << 20)
+            .build()
+            .unwrap();
+
+        assert_eq!(options.raw.use_memory_arena, 0);
+        assert_eq!(options.raw.use_shared_execute_segments, 0);
+        assert_eq!(options.raw.load_program, 0);
+        assert_eq!(options.raw.protect_segments, 0);
+        assert_eq!(options.raw.native_syscall_base, 1000);
+        assert_eq!(options.raw.arena_size, 16 << 20);
+        assert_eq!(
+            unsafe { CStr::from_ptr(options.raw.default_exit_function) }
+                .to_str()
+                .unwrap(),
+            "return_to_host"
+        );
     }
 }

@@ -1,0 +1,33 @@
+[package]
+name = "libriscv_sys"
+version = "0.2.0"
+edition = "2024"
+license = "BSD-3-Clause"
+description = "FFI bindings to libriscv, a fast RISC-V sandbox emulator"
+repository = "https://github.com/cijiugechu/libriscv"
+authors = ["nemurubaka <cijiugechu@gmail.com>"]
+keywords = ["riscv", "sandbox", "emulator"]
+readme = "README.md"
+links = "riscv"
+build = "build.rs"
+include = [
+    "Cargo.toml",
+    "build.rs",
+    "src/**",
+    "wrapper.h",
+    "libriscv-c/VERSION",
+    "libriscv-c/LICENSE",
+    "libriscv-c/c/**",
+    "libriscv-c/lib/**",
+]
+
+[features]
+default = []
+bindgen = ["dep:bindgen"]
+binary-translation = []
+
+[build-dependencies]
+cc = "1"
+bindgen = { version = "0.72", optional = true }
+
+[dependencies]

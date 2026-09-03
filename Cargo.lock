@@ -166,7 +166,7 @@ dependencies = [
 
 [[package]]
 name = "libriscv"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bytemuck",
  "libriscv-macros",
@@ -186,9 +186,7 @@ dependencies = [
 
 [[package]]
 name = "libriscv_sys"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19f26ac6f393ba56fa7f2cfe385d28e009b22372d044aeb0c35bdcf351294a6d"
+version = "0.2.0"
 dependencies = [
  "bindgen",
  "cc",
