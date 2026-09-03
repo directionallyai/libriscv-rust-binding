@@ -3,9 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[cfg(feature = "bindgen")]
-fn generate_bindings(lib_dir: &Path, out_dir: &Path, libriscv_dir: &Path) {
+fn generate_bindings(wrapper_h: &Path, lib_dir: &Path, out_dir: &Path, libriscv_dir: &Path) {
     let bindings = bindgen::Builder::default()
-        .header("wrapper.h")
+        .header(wrapper_h.to_string_lossy())
         .clang_arg(format!("-I{}", lib_dir.display()))
         .clang_arg(format!("-I{}", out_dir.display()))
         .clang_arg(format!("-I{}", libriscv_dir.join("c").display()))
@@ -18,11 +18,11 @@ fn generate_bindings(lib_dir: &Path, out_dir: &Path, libriscv_dir: &Path) {
 
     bindings
         .write_to_file(out_dir.join("bindings.rs"))
-        .expect("Couldn't write bindings!");
+        .expect("Couldn't write bindings");
 }
 
 #[cfg(not(feature = "bindgen"))]
-fn generate_bindings(_lib_dir: &Path, _out_dir: &Path, _libriscv_dir: &Path) {
+fn generate_bindings(_wrapper_h: &Path, _lib_dir: &Path, _out_dir: &Path, _libriscv_dir: &Path) {
     println!("cargo:rerun-if-changed=src/bindings.rs");
 }
 
@@ -31,27 +31,26 @@ fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let libriscv_dir = manifest_dir.join("libriscv-c");
     let lib_dir = libriscv_dir.join("lib");
-    let libriscv_version = fs::read_to_string(libriscv_dir.join("VERSION"))
-        .expect("Failed to read vendored libriscv version");
-    assert_eq!(libriscv_version.trim(), "v1.20");
-    println!(
-        "cargo:rustc-env=LIBRISCV_VERSION={}",
-        libriscv_version.trim()
-    );
     let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let binary_translation = env::var("CARGO_FEATURE_BINARY_TRANSLATION").is_ok();
+    let compiler = cc::Build::new().cpp(true).get_compiler();
+    let threaded = compiler.is_like_clang() || compiler.is_like_gnu();
 
-    // Generate libriscv_settings.h
     let binary_translation_define = if binary_translation {
         "#define RISCV_BINARY_TRANSLATION"
     } else {
         "/* #undef RISCV_BINARY_TRANSLATION */"
     };
+    let threaded_define = if threaded {
+        "#define RISCV_THREADED"
+    } else {
+        "/* #undef RISCV_THREADED */"
+    };
     let settings_h = format!(
         r#"#ifndef LIBRISCV_SETTINGS_H
 #define LIBRISCV_SETTINGS_H
 
-/* libriscv_sys configuration */
 #define RISCV_EXT_A
 #define RISCV_EXT_C
 /* #undef RISCV_EXT_V */
@@ -67,22 +66,20 @@ fn main() {
 #define RISCV_FLAT_RW_ARENA
 #define RISCV_VIRTUAL_PAGING
 /* #undef RISCV_ENCOMPASSING_ARENA */
-#define RISCV_THREADED
+{threaded_define}
 /* #undef RISCV_TAILCALL_DISPATCH */
 /* #undef RISCV_LIBTCC */
 /* #undef RISCV_ASMJIT */
 
-/* Version information */
 #define RISCV_VERSION_MAJOR 1
 #define RISCV_VERSION_MINOR 20
 
-#endif /* LIBRISCV_SETTINGS_H */
+#endif
 "#,
     );
     fs::write(out_dir.join("libriscv_settings.h"), settings_h)
         .expect("Failed to write libriscv_settings.h");
 
-    // Core source files
     let mut sources = vec![
         "lib/libriscv/cpu.cpp",
         "lib/libriscv/debug.cpp",
@@ -103,17 +100,18 @@ fn main() {
         "lib/libriscv/serialize.cpp",
         "lib/libriscv/shared_rodata.cpp",
         "lib/libriscv/util/crc32c.cpp",
-        // 64-bit support
         "lib/libriscv/rv64i.cpp",
-        // Threaded dispatch (for GCC/Clang)
-        "lib/libriscv/threaded_dispatch.cpp",
-        "lib/libriscv/threaded_inaccurate_dispatch.cpp",
-        // C API wrapper
-        "c/libriscv.cpp",
     ];
 
-    // Platform-specific system calls
-    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    if threaded {
+        sources.extend([
+            "lib/libriscv/threaded_dispatch.cpp",
+            "lib/libriscv/threaded_inaccurate_dispatch.cpp",
+        ]);
+    } else {
+        sources.push("lib/libriscv/bytecode_dispatch.cpp");
+    }
+
     if target_os == "windows" {
         sources.push("lib/libriscv/win32/system_calls.cpp");
     } else {
@@ -136,37 +134,20 @@ fn main() {
         }
     }
 
-    // Create a wrapper for libriscv.cpp that handles the stdout macro conflict on macOS
-    // The issue is that macOS defines `stdout` as a macro, which conflicts with the
-    // `stdout` field name in RISCVOptions struct
-    let libriscv_cpp_path = libriscv_dir.join("c/libriscv.cpp");
-    let wrapper_cpp = format!(
-        r#"
-// Save and undef the stdout macro before including libriscv headers
-#include <cstdio>
+    let wrapper_cpp = r#"#include <cstdio>
 #ifdef stdout
 #define _LIBRISCV_SAVED_STDOUT stdout
 #undef stdout
 #endif
-
-// Include the original implementation with absolute path
-#include "{}"
-
-// Restore stdout macro
+#include "libriscv.cpp"
 #ifdef _LIBRISCV_SAVED_STDOUT
 #define stdout _LIBRISCV_SAVED_STDOUT
 #undef _LIBRISCV_SAVED_STDOUT
 #endif
-"#,
-        libriscv_cpp_path.display()
-    );
+"#;
     let wrapper_cpp_path = out_dir.join("libriscv_wrapper.cpp");
     fs::write(&wrapper_cpp_path, wrapper_cpp).expect("Failed to write wrapper");
 
-    // Remove the original C API from sources - we'll use our wrapper instead
-    sources.retain(|s| *s != "c/libriscv.cpp");
-
-    // Build the C++ library
     let mut build = cc::Build::new();
     build
         .cpp(true)
@@ -175,23 +156,16 @@ fn main() {
         .include(&out_dir)
         .include(libriscv_dir.join("c"));
 
-    // Add all source files
     for source in &sources {
         build.file(libriscv_dir.join(source));
     }
-
-    // Add the wrapper for the C API (handles stdout macro conflict)
     build.file(&wrapper_cpp_path);
 
-    // Compiler-specific flags
-    let compiler = build.get_compiler();
     if compiler.is_like_clang() || compiler.is_like_gnu() {
         build.flag("-Wall").flag("-Wextra");
     }
-
     build.compile("riscv");
 
-    // Platform-specific linking
     if target_os == "macos" {
         println!("cargo:rustc-link-lib=framework=Security");
         println!("cargo:rustc-link-lib=framework=Foundation");
@@ -204,23 +178,14 @@ fn main() {
     {
         println!("cargo:rustc-link-lib=dl");
     }
+    generate_bindings(
+        &manifest_dir.join("wrapper.h"),
+        &lib_dir,
+        &out_dir,
+        &libriscv_dir,
+    );
 
-    // Link C++ standard library
-    if target_os == "macos" {
-        println!("cargo:rustc-link-lib=c++");
-    } else if target_os == "linux" || target_os == "freebsd" {
-        println!("cargo:rustc-link-lib=stdc++");
-    } else if target_os == "windows" && target_env == "gnu" {
-        println!("cargo:rustc-link-lib=stdc++");
-    }
-
-    generate_bindings(&lib_dir, &out_dir, &libriscv_dir);
-
-    // Rerun if sources change
     println!("cargo:rerun-if-changed=wrapper.h");
-    println!("cargo:rerun-if-changed=libriscv-c/c/libriscv.h");
-    println!("cargo:rerun-if-changed=libriscv-c/VERSION");
-    for source in &sources {
-        println!("cargo:rerun-if-changed=libriscv-c/{}", source);
-    }
+    println!("cargo:rerun-if-changed=libriscv-c/c");
+    println!("cargo:rerun-if-changed=libriscv-c/lib");
 }

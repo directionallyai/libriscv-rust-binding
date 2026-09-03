@@ -1,6 +1,6 @@
 [package]
 name = "libriscv"
-version = "0.4.0"
+version = "0.3.0"
 edition = "2024"
 authors = ["nemurubaka <cijiugechu@gmail.com>"]
 description = "Safe wrapper for libriscv_sys, a fast RISC-V sandbox emulator"

@@ -7,7 +7,6 @@ description = "FFI bindings to libriscv, a fast RISC-V sandbox emulator"
 repository = "https://github.com/cijiugechu/libriscv"
 authors = ["nemurubaka <cijiugechu@gmail.com>"]
 keywords = ["riscv", "sandbox", "emulator"]
-readme = "README.md"
 links = "riscv"
 build = "build.rs"
 include = [
@@ -15,7 +14,6 @@ include = [
     "build.rs",
     "src/**",
     "wrapper.h",
-    "libriscv-c/VERSION",
     "libriscv-c/LICENSE",
     "libriscv-c/c/**",
     "libriscv-c/lib/**",
@@ -29,5 +27,3 @@ binary-translation = []
 [build-dependencies]
 cc = "1"
 bindgen = { version = "0.72", optional = true }
-
-[dependencies]

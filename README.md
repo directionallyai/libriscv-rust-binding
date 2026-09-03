@@ -1,8 +1,13 @@
 # `libriscv`
 
 Safe Rust wrapper around libriscv_sys, a fast RISC-V sandbox emulator.
-This workspace vendors and builds libriscv v1.20 through the local
-`libriscv-sys` crate.
+
+This workspace vendors and builds the libriscv v1.20 C API through the
+`libriscv-sys` crate. Clone with submodules enabled:
+
+```sh
+git clone --recurse-submodules https://github.com/cijiugechu/libriscv.git
+```
 
 ## How to use
 
@@ -17,6 +22,10 @@ let registry = SyscallRegistry::empty();
 let mut machine = Machine::new(&elf, options, &registry).unwrap();
 machine.run(1_000_000).unwrap();
 ```
+
+The v1.20 bindings also expose instruction stepping, fast forks, native heap
+arenas, shared-memory insertion, Linux syscall setup, POSIX thread setup, and
+the extended machine options added after libriscv v1.11.
 
 You can also define registries using the macros:
 
@@ -37,15 +46,6 @@ let registry = host_syscalls::registry().unwrap();
 ```
 
 See `examples/` for more usage patterns.
-
-The v1.20 options and machine APIs include memory-arena configuration,
-single-step execution, instruction-limit queries, Linux/POSIX setup helpers,
-and native arena allocation helpers. Lower-level fork, page, and callback APIs
-remain available through `libriscv::sys`.
-
-For crates.io releases, publish `libriscv_sys` 0.2.0 before publishing
-`libriscv` 0.4.0 so Cargo can resolve the non-path dependency used by packaged
-crates.
 
 ## Credits
 
